@@ -232,6 +232,16 @@ h3 {
   padding: 0.7rem;
 }
 
+.lists-heading {
+  margin: 0 0 0.45rem 0.5rem;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
 .list-navigation {
   display: grid;
   gap: 0.15rem;
@@ -746,6 +756,10 @@ h3 {
     border-radius: 0;
     background: transparent;
     box-shadow: none;
+  }
+
+  .lists-heading {
+    margin: 0 0.1rem 0.35rem;
   }
 
   .list-navigation {

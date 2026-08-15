@@ -33,11 +33,11 @@ list cascades to its items. Meaningful writes create an audit row with the owner
 actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 
 The browser keeps list navigation deliberately compact. Shared federated chrome
-is followed directly by the list navigation; the page has no page-specific hero
-or global search. On mobile, list navigation is a horizontally scrolling strip,
-with New List followed by Reorder as its final two buttons. The same actions
-trail the navigation on larger screens. Reorder remains disabled until at least
-two lists exist.
+is followed directly by a visible Lists heading and the list navigation; the
+page has no page-specific hero or global search. On mobile, list navigation is a
+horizontally scrolling strip, with New List followed by Reorder as its final two
+buttons. The same heading and trailing actions remain visible on larger screens.
+Reorder remains disabled until at least two lists exist.
 
 Notes render as plain text rows separated by a thin rule, without card
 backgrounds, rounded boxes, or container padding. Checkbox, text, and ordering

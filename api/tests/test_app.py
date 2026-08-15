@@ -388,12 +388,19 @@ def test_browser_starts_with_compact_list_navigation_and_trailing_actions() -> N
     assert ".search-icon" not in css
     assert ".clear-search" not in css
 
+    heading = re.search(
+        r'<h1 id="lists-heading" class="lists-heading">\s*Lists\s*</h1>',
+        index,
+    )
     navigation = re.search(
         r'<nav id="list-navigation" class="list-navigation">(.*?)</nav>',
         index,
         re.DOTALL,
     )
+    assert heading is not None
     assert navigation is not None
+    assert index.index(heading.group(0)) < index.index(navigation.group(0))
+    assert 'aria-labelledby="lists-heading"' in index
     navigation_markup = navigation.group(1)
     new_list_position = navigation_markup.index('id="new-list-button"')
     reorder_position = navigation_markup.index('id="reorder-lists-button"')
@@ -418,6 +425,8 @@ def test_browser_starts_with_compact_list_navigation_and_trailing_actions() -> N
     mobile_css = css[
         css.index("@media (max-width: 720px)") : css.index("@media (max-width: 430px)")
     ]
+    assert ".lists-heading" in css
+    assert ".lists-heading" in mobile_css
     assert "overflow-x: auto" in mobile_css
     assert ".list-action-button" in mobile_css
     assert "flex: 0 0 auto" in mobile_css
