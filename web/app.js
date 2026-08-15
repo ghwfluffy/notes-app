@@ -9,7 +9,6 @@
     me: null,
     lists: [],
     selectedListId: null,
-    query: "",
     reorderListIds: [],
   };
 
@@ -19,8 +18,8 @@
   const fatalError = byId("fatal-error");
   const listNavigation = byId("list-navigation");
   const listPanel = byId("list-panel");
-  const searchInput = byId("search-input");
-  const clearSearch = byId("clear-search");
+  const newListButton = byId("new-list-button");
+  const reorderListsButton = byId("reorder-lists-button");
   const listDialog = byId("list-dialog");
   const reorderDialog = byId("reorder-dialog");
   const reorderList = byId("reorder-list");
@@ -103,7 +102,7 @@
   }
 
   function renderNavigation() {
-    listNavigation.replaceChildren();
+    const navigationItems = [];
     for (const noteList of state.lists) {
       const button = element("button", "list-button");
       button.type = "button";
@@ -117,14 +116,12 @@
       );
       button.addEventListener("click", () => {
         state.selectedListId = noteList.id;
-        state.query = "";
-        searchInput.value = "";
-        clearSearch.hidden = true;
         render();
         listPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
       });
-      listNavigation.append(button);
+      navigationItems.push(button);
     }
+    listNavigation.replaceChildren(...navigationItems, newListButton, reorderListsButton);
   }
 
   function iconButton(label, symbol, onClick, danger = false) {
@@ -165,7 +162,7 @@
     }
   }
 
-  function itemCard(item, noteList, showListLabel = false, orderedItems = null) {
+  function itemCard(item, noteList, orderedItems = null) {
     const row = element("li", `item-card${item.completed ? " completed" : ""}`);
     row.dataset.itemId = item.id;
 
@@ -195,7 +192,6 @@
     content.type = "button";
     content.append(element("span", "item-title", item.title));
     if (item.details) content.append(element("span", "item-details", item.details));
-    if (showListLabel) content.append(element("span", "item-list-label", noteList.name));
     content.addEventListener("click", () => openItemDialog(item));
 
     const menu = element("div", "item-menu");
@@ -236,33 +232,6 @@
     content.append(element("strong", "", title), element("span", "", message));
     box.append(content);
     return box;
-  }
-
-  function renderSearchResults() {
-    const query = state.query.trim().toLocaleLowerCase();
-    const heading = element("div", "panel-heading");
-    const copy = element("div");
-    copy.append(
-      element("p", "eyebrow", "Across all lists"),
-      element("h2", "", `Results for “${state.query.trim()}”`),
-    );
-    heading.append(copy);
-    listPanel.append(heading);
-
-    const matches = [];
-    for (const noteList of state.lists) {
-      for (const item of noteList.items) {
-        const haystack = `${item.title}\n${item.details || ""}\n${noteList.name}`.toLocaleLowerCase();
-        if (haystack.includes(query)) matches.push({ item, noteList });
-      }
-    }
-    if (!matches.length) {
-      listPanel.append(emptyState("Nothing matched", "Try a shorter word or a different spelling."));
-      return;
-    }
-    const items = element("ul", "items");
-    for (const match of matches) items.append(itemCard(match.item, match.noteList, true));
-    listPanel.append(items);
   }
 
   function renderSelectedList() {
@@ -323,7 +292,7 @@
     const completed = noteList.items.filter((item) => item.completed);
     const items = element("ul", "items");
     for (const group of [active, completed]) {
-      for (const item of group) items.append(itemCard(item, noteList, false, group));
+      for (const item of group) items.append(itemCard(item, noteList, group));
     }
     listPanel.append(items);
   }
@@ -334,10 +303,9 @@
       state.selectedListId = state.lists[0]?.id || null;
     }
     renderNavigation();
-    byId("reorder-lists-button").disabled = state.lists.length < 2;
+    reorderListsButton.disabled = state.lists.length < 2;
     listPanel.replaceChildren();
-    if (state.query.trim()) renderSearchResults();
-    else renderSelectedList();
+    renderSelectedList();
   }
 
   async function reloadLists(preferredListId = state.selectedListId) {
@@ -536,21 +504,9 @@
     }
   }
 
-  byId("new-list-button").addEventListener("click", () => openListDialog());
-  byId("reorder-lists-button").addEventListener("click", openReorderDialog);
+  newListButton.addEventListener("click", () => openListDialog());
+  reorderListsButton.addEventListener("click", openReorderDialog);
   byId("retry-button").addEventListener("click", () => load());
-  searchInput.addEventListener("input", () => {
-    state.query = searchInput.value;
-    clearSearch.hidden = !state.query;
-    render();
-  });
-  clearSearch.addEventListener("click", () => {
-    state.query = "";
-    searchInput.value = "";
-    clearSearch.hidden = true;
-    searchInput.focus();
-    render();
-  });
 
   byId("list-form").addEventListener("submit", async (event) => {
     event.preventDefault();

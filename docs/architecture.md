@@ -32,12 +32,18 @@ Lists and items have stable UUID identifiers and explicit positions. Deleting a
 list cascades to its items. Meaningful writes create an audit row with the owner,
 actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 
-The browser keeps list navigation deliberately compact and renders notes as
-plain text rows separated by a thin rule, without card backgrounds, rounded
-boxes, or container padding. Checkbox, text, and ordering controls retain
-separate 44px interaction heights. Visible up/down controls move an item within
-its active or completed section and restore focus after the list reloads. The
-dedicated list reorder sheet is an ordered-row
+The browser keeps list navigation deliberately compact. Shared federated chrome
+is followed directly by the list navigation; the page has no page-specific hero
+or global search. On mobile, list navigation is a horizontally scrolling strip,
+with New List followed by Reorder as its final two buttons. The same actions
+trail the navigation on larger screens. Reorder remains disabled until at least
+two lists exist.
+
+Notes render as plain text rows separated by a thin rule, without card
+backgrounds, rounded boxes, or container padding. Checkbox, text, and ordering
+controls retain separate 44px interaction heights. Visible up/down controls move
+an item within its active or completed section and restore focus after the list
+reloads. The dedicated list reorder sheet is an ordered-row
 editor with visible position numbers, a labeled touch/mouse drag handle, compact
 move-up/down fallbacks, keyboard Arrow/Home/End handling, focus restoration, and
 live-region position announcements. It saves the complete ordered id set in one

@@ -365,6 +365,65 @@ def test_browser_loading_state_is_hidden_correctly_and_requests_are_bounded() ->
     assert "list_id: byId" not in javascript
 
 
+def test_browser_starts_with_compact_list_navigation_and_trailing_actions() -> None:
+    authenticate()
+    index = client.get("/").text
+    css = client.get("/static/app.css").text
+    javascript = client.get("/static/app.js").text
+
+    assert 'id="page-title"' not in index
+    assert 'class="page-heading"' not in index
+    assert 'class="subtitle"' not in index
+    assert 'class="sidebar-label"' not in index
+    assert 'type="search"' not in index
+    assert 'id="search-input"' not in index
+    assert 'id="clear-search"' not in index
+    assert "searchInput" not in javascript
+    assert "clearSearch" not in javascript
+    assert "renderSearchResults" not in javascript
+    assert "state.query" not in javascript
+    assert ".page-heading" not in css
+    assert ".page-actions" not in css
+    assert ".search-field" not in css
+    assert ".search-icon" not in css
+    assert ".clear-search" not in css
+
+    navigation = re.search(
+        r'<nav id="list-navigation" class="list-navigation">(.*?)</nav>',
+        index,
+        re.DOTALL,
+    )
+    assert navigation is not None
+    navigation_markup = navigation.group(1)
+    new_list_position = navigation_markup.index('id="new-list-button"')
+    reorder_position = navigation_markup.index('id="reorder-lists-button"')
+    assert new_list_position < reorder_position
+    assert "New List" in navigation_markup
+    assert "Reorder" in navigation_markup
+    assert 'aria-label="Create a new list"' in navigation_markup
+    assert 'aria-label="Reorder lists"' in navigation_markup
+    assert re.search(r'id="reorder-lists-button"[^>]*\sdisabled', navigation_markup)
+    assert "navigationItems.push(button);" in javascript
+    assert (
+        "listNavigation.replaceChildren(...navigationItems, newListButton, reorderListsButton);"
+        in javascript
+    )
+    assert javascript.index("navigationItems.push(button);") < javascript.index(
+        "listNavigation.replaceChildren(...navigationItems, newListButton, reorderListsButton);"
+    )
+    assert "reorderListsButton.disabled = state.lists.length < 2;" in javascript
+    assert 'newListButton.addEventListener("click", () => openListDialog());' in javascript
+    assert 'reorderListsButton.addEventListener("click", openReorderDialog);' in javascript
+
+    mobile_css = css[
+        css.index("@media (max-width: 720px)") : css.index("@media (max-width: 430px)")
+    ]
+    assert "overflow-x: auto" in mobile_css
+    assert ".list-action-button" in mobile_css
+    assert "flex: 0 0 auto" in mobile_css
+    assert "width: auto" in mobile_css
+
+
 def test_browser_data_is_isolated_by_oauth_subject() -> None:
     authenticate("first-owner")
     first_list = client.get("/api/v1/lists").json()["lists"][0]

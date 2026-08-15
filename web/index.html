@@ -20,29 +20,6 @@
   ></ghwiz-federated-banner>
 
   <main id="notes-content" class="page-shell">
-    <section class="page-heading" aria-labelledby="page-title">
-      <div>
-        <p class="eyebrow">Keep the good stuff</p>
-        <h1 id="page-title">My Notes</h1>
-        <p class="subtitle">Small lists for things you do not want to lose.</p>
-      </div>
-      <div class="page-actions">
-        <button id="reorder-lists-button" class="button button-secondary" type="button" disabled>
-          <span aria-hidden="true">⇅</span> Reorder
-        </button>
-        <button id="new-list-button" class="button button-primary" type="button">
-          <span aria-hidden="true">＋</span> New list
-        </button>
-      </div>
-    </section>
-
-    <label class="search-field" for="search-input">
-      <span class="search-icon" aria-hidden="true">⌕</span>
-      <span class="sr-only">Search every list</span>
-      <input id="search-input" type="search" autocomplete="off" placeholder="Search every list…">
-      <button id="clear-search" class="clear-search" type="button" aria-label="Clear search" hidden>×</button>
-    </label>
-
     <div id="loading-state" class="loading-card" role="status">
       <span class="spinner" aria-hidden="true"></span>
       Loading your lists…
@@ -50,8 +27,14 @@
 
     <div id="app-layout" class="app-layout" hidden>
       <aside class="list-sidebar" aria-label="Your lists">
-        <div class="sidebar-label">Lists</div>
-        <nav id="list-navigation" class="list-navigation"></nav>
+        <nav id="list-navigation" class="list-navigation">
+          <button id="new-list-button" class="button button-primary list-action-button" type="button" aria-label="Create a new list">
+            <span aria-hidden="true">＋</span> New List
+          </button>
+          <button id="reorder-lists-button" class="button button-secondary list-action-button" type="button" aria-label="Reorder lists" disabled>
+            <span aria-hidden="true">⇅</span> Reorder
+          </button>
+        </nav>
       </aside>
 
       <section id="list-panel" class="list-panel" aria-live="polite"></section>
