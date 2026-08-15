@@ -1,0 +1,424 @@
+(() => {
+  "use strict";
+
+  const configuredBase = window.NOTES_CONFIG?.basePath || "";
+  const basePath = configuredBase === "/" ? "" : configuredBase.replace(/\/$/, "");
+  const apiBase = `${basePath}/api/v1`;
+  const state = {
+    me: null,
+    lists: [],
+    selectedListId: null,
+    query: "",
+  };
+
+  const byId = (id) => document.getElementById(id);
+  const appLayout = byId("app-layout");
+  const loadingState = byId("loading-state");
+  const fatalError = byId("fatal-error");
+  const listNavigation = byId("list-navigation");
+  const listPanel = byId("list-panel");
+  const searchInput = byId("search-input");
+  const clearSearch = byId("clear-search");
+  const listDialog = byId("list-dialog");
+  const itemDialog = byId("item-dialog");
+  let toastTimer = null;
+
+  function element(tag, className, text) {
+    const node = document.createElement(tag);
+    if (className) node.className = className;
+    if (text !== undefined) node.textContent = text;
+    return node;
+  }
+
+  function showToast(message, isError = false) {
+    const toast = byId("toast");
+    toast.textContent = message;
+    toast.classList.toggle("error", isError);
+    toast.hidden = false;
+    window.clearTimeout(toastTimer);
+    toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3200);
+  }
+
+  async function request(path, options = {}) {
+    const response = await fetch(`${apiBase}${path}`, {
+      ...options,
+      headers: {
+        "content-type": "application/json",
+        ...(options.headers || {}),
+      },
+    });
+    if (response.status === 401) {
+      window.location.assign(`${apiBase}/auth/oauth/login?next=${encodeURIComponent(`${basePath}/`)}`);
+      throw new Error("Authentication required.");
+    }
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      const detail = typeof payload?.detail === "string" ? payload.detail : "The request could not be completed.";
+      throw new Error(detail);
+    }
+    return payload;
+  }
+
+  function selectedList() {
+    return state.lists.find((list) => list.id === state.selectedListId) || state.lists[0] || null;
+  }
+
+  function configureBanner() {
+    const banner = byId("federated-banner");
+    if (!banner || !state.me) return;
+    banner.setAttribute("app-url", `${basePath}/` || "/");
+    banner.setAttribute("account-settings-url", state.me.accountSettingsUrl || "");
+    banner.sites = state.me.federatedApps || [];
+    banner.user = state.me.user || null;
+    banner.addEventListener("federated-banner-action", (event) => {
+      if (event.detail?.action === "sign-out") {
+        window.location.assign(`${apiBase}/auth/logout`);
+      }
+    });
+  }
+
+  function renderNavigation() {
+    listNavigation.replaceChildren();
+    for (const noteList of state.lists) {
+      const button = element("button", "list-button");
+      button.type = "button";
+      button.dataset.listId = noteList.id;
+      button.setAttribute("aria-current", String(noteList.id === state.selectedListId));
+      button.style.setProperty("--list-color", noteList.color);
+      button.append(
+        element("span", "list-dot"),
+        element("span", "list-button-name", noteList.name),
+        element("span", "list-count", String(noteList.active_item_count)),
+      );
+      button.addEventListener("click", () => {
+        state.selectedListId = noteList.id;
+        state.query = "";
+        searchInput.value = "";
+        clearSearch.hidden = true;
+        render();
+        listPanel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      });
+      listNavigation.append(button);
+    }
+  }
+
+  function iconButton(label, symbol, onClick, danger = false) {
+    const button = element("button", `icon-button${danger ? " button-danger" : ""}`, symbol);
+    button.type = "button";
+    button.setAttribute("aria-label", label);
+    button.title = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  function itemCard(item, noteList, showListLabel = false) {
+    const row = element("li", `item-card${item.completed ? " completed" : ""}`);
+
+    const checkLabel = element("label", "item-check");
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = item.completed;
+    checkbox.setAttribute("aria-label", `${item.completed ? "Mark active" : "Mark complete"}: ${item.title}`);
+    checkbox.addEventListener("change", async () => {
+      checkbox.disabled = true;
+      try {
+        await request(`/items/${encodeURIComponent(item.id)}`, {
+          method: "PATCH",
+          body: JSON.stringify({ completed: checkbox.checked }),
+        });
+        await reloadLists(noteList.id);
+        showToast(checkbox.checked ? "Marked complete." : "Moved back to active.");
+      } catch (error) {
+        checkbox.checked = !checkbox.checked;
+        checkbox.disabled = false;
+        showToast(error.message, true);
+      }
+    });
+    checkLabel.append(checkbox);
+
+    const content = element("button", "item-content");
+    content.type = "button";
+    content.append(element("span", "item-title", item.title));
+    if (item.details) content.append(element("span", "item-details", item.details));
+    if (showListLabel) content.append(element("span", "item-list-label", noteList.name));
+    content.addEventListener("click", () => openItemDialog(item));
+
+    const menu = element("div", "item-menu");
+    menu.append(iconButton("Edit item", "⋯", () => openItemDialog(item)));
+    row.append(checkLabel, content, menu);
+    return row;
+  }
+
+  function emptyState(title, message) {
+    const box = element("div", "empty-state");
+    const content = element("div");
+    content.append(element("strong", "", title), element("span", "", message));
+    box.append(content);
+    return box;
+  }
+
+  function renderSearchResults() {
+    const query = state.query.trim().toLocaleLowerCase();
+    const heading = element("div", "panel-heading");
+    const copy = element("div");
+    copy.append(
+      element("p", "eyebrow", "Across all lists"),
+      element("h2", "", `Results for “${state.query.trim()}”`),
+    );
+    heading.append(copy);
+    listPanel.append(heading);
+
+    const matches = [];
+    for (const noteList of state.lists) {
+      for (const item of noteList.items) {
+        const haystack = `${item.title}\n${item.details || ""}\n${noteList.name}`.toLocaleLowerCase();
+        if (haystack.includes(query)) matches.push({ item, noteList });
+      }
+    }
+    if (!matches.length) {
+      listPanel.append(emptyState("Nothing matched", "Try a shorter word or a different spelling."));
+      return;
+    }
+    const items = element("ul", "items");
+    for (const match of matches) items.append(itemCard(match.item, match.noteList, true));
+    listPanel.append(items);
+  }
+
+  function renderSelectedList() {
+    const noteList = selectedList();
+    if (!noteList) {
+      listPanel.append(emptyState("Start a list", "Create a list for anything you want to remember."));
+      return;
+    }
+
+    const heading = element("div", "panel-heading");
+    const copy = element("div");
+    copy.append(element("p", "eyebrow", `${noteList.active_item_count} active`));
+    copy.append(element("h2", "", noteList.name));
+    if (noteList.description) copy.append(element("p", "", noteList.description));
+    const actions = element("div", "panel-actions");
+    actions.append(
+      iconButton("Edit list", "✎", () => openListDialog(noteList)),
+      iconButton("Delete list", "⌫", () => deleteList(noteList), true),
+    );
+    heading.append(copy, actions);
+
+    const quickAdd = element("form", "quick-add");
+    const input = document.createElement("input");
+    input.required = true;
+    input.maxLength = 500;
+    input.placeholder = `Add to ${noteList.name}…`;
+    input.setAttribute("aria-label", `Add item to ${noteList.name}`);
+    const submit = element("button", "button button-primary", "Add item");
+    submit.type = "submit";
+    quickAdd.append(input, submit);
+    quickAdd.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const title = input.value.trim();
+      if (!title) return;
+      input.disabled = true;
+      submit.disabled = true;
+      try {
+        await request(`/lists/${encodeURIComponent(noteList.id)}/items`, {
+          method: "POST",
+          body: JSON.stringify({ title }),
+        });
+        await reloadLists(noteList.id);
+        showToast("Added to your list.");
+        window.setTimeout(() => document.querySelector(".quick-add input")?.focus(), 0);
+      } catch (error) {
+        input.disabled = false;
+        submit.disabled = false;
+        showToast(error.message, true);
+      }
+    });
+
+    listPanel.append(heading, quickAdd);
+    if (!noteList.items.length) {
+      listPanel.append(emptyState("This list is ready", "Add the first thing you want to remember."));
+      return;
+    }
+    const active = noteList.items.filter((item) => !item.completed);
+    const completed = noteList.items.filter((item) => item.completed);
+    const items = element("ul", "items");
+    for (const item of [...active, ...completed]) items.append(itemCard(item, noteList));
+    listPanel.append(items);
+  }
+
+  function render() {
+    if (!state.selectedListId && state.lists.length) state.selectedListId = state.lists[0].id;
+    if (state.selectedListId && !state.lists.some((list) => list.id === state.selectedListId)) {
+      state.selectedListId = state.lists[0]?.id || null;
+    }
+    renderNavigation();
+    listPanel.replaceChildren();
+    if (state.query.trim()) renderSearchResults();
+    else renderSelectedList();
+  }
+
+  async function reloadLists(preferredListId = state.selectedListId) {
+    const payload = await request("/lists");
+    state.lists = payload.lists || [];
+    state.selectedListId = preferredListId;
+    render();
+  }
+
+  function openListDialog(noteList = null) {
+    byId("list-dialog-title").textContent = noteList ? "Edit list" : "New list";
+    byId("list-id").value = noteList?.id || "";
+    byId("list-name").value = noteList?.name || "";
+    byId("list-description").value = noteList?.description || "";
+    byId("list-color").value = noteList?.color || "#6750a4";
+    listDialog.showModal();
+    window.setTimeout(() => byId("list-name").focus(), 0);
+  }
+
+  function openItemDialog(item) {
+    byId("item-id").value = item.id;
+    byId("item-title").value = item.title;
+    byId("item-details").value = item.details || "";
+    byId("item-completed").checked = item.completed;
+    const select = byId("item-list");
+    select.replaceChildren();
+    for (const noteList of state.lists) {
+      const option = element("option", "", noteList.name);
+      option.value = noteList.id;
+      option.selected = noteList.id === item.list_id;
+      select.append(option);
+    }
+    itemDialog.showModal();
+    window.setTimeout(() => byId("item-title").focus(), 0);
+  }
+
+  async function deleteList(noteList) {
+    if (!window.confirm(`Delete “${noteList.name}” and its ${noteList.item_count} item${noteList.item_count === 1 ? "" : "s"}?`)) return;
+    try {
+      await request(`/lists/${encodeURIComponent(noteList.id)}`, { method: "DELETE" });
+      state.selectedListId = null;
+      await reloadLists();
+      showToast("List deleted.");
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  }
+
+  async function deleteItem(item) {
+    if (!window.confirm(`Delete “${item.title}”?`)) return;
+    try {
+      await request(`/items/${encodeURIComponent(item.id)}`, { method: "DELETE" });
+      itemDialog.close();
+      await reloadLists();
+      showToast("Item deleted.");
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  }
+
+  byId("new-list-button").addEventListener("click", () => openListDialog());
+  byId("retry-button").addEventListener("click", () => load());
+  searchInput.addEventListener("input", () => {
+    state.query = searchInput.value;
+    clearSearch.hidden = !state.query;
+    render();
+  });
+  clearSearch.addEventListener("click", () => {
+    state.query = "";
+    searchInput.value = "";
+    clearSearch.hidden = true;
+    searchInput.focus();
+    render();
+  });
+
+  byId("list-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = byId("list-id").value;
+    const saveButton = byId("save-list-button");
+    saveButton.disabled = true;
+    try {
+      const payload = {
+        name: byId("list-name").value.trim(),
+        description: byId("list-description").value.trim() || null,
+        color: byId("list-color").value,
+      };
+      const saved = await request(id ? `/lists/${encodeURIComponent(id)}` : "/lists", {
+        method: id ? "PATCH" : "POST",
+        body: JSON.stringify(payload),
+      });
+      listDialog.close();
+      await reloadLists(saved.id);
+      showToast(id ? "List updated." : "List created.");
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+
+  byId("item-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const id = byId("item-id").value;
+    const saveButton = byId("save-item-button");
+    saveButton.disabled = true;
+    try {
+      const payload = {
+        title: byId("item-title").value.trim(),
+        details: byId("item-details").value.trim() || null,
+        completed: byId("item-completed").checked,
+        list_id: byId("item-list").value,
+      };
+      await request(`/items/${encodeURIComponent(id)}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+      itemDialog.close();
+      state.selectedListId = payload.list_id;
+      await reloadLists(payload.list_id);
+      showToast("Item updated.");
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+
+  const itemActions = byId("item-form").querySelector(".modal-actions");
+  const deleteItemButton = element("button", "button button-danger", "Delete");
+  deleteItemButton.type = "button";
+  deleteItemButton.addEventListener("click", () => {
+    const id = byId("item-id").value;
+    const item = state.lists.flatMap((list) => list.items).find((candidate) => candidate.id === id);
+    if (item) deleteItem(item);
+  });
+  itemActions.prepend(deleteItemButton);
+
+  for (const dialog of [listDialog, itemDialog]) {
+    dialog.addEventListener("click", (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  }
+  for (const button of document.querySelectorAll("[data-dialog-close]")) {
+    button.addEventListener("click", () => button.closest("dialog")?.close());
+  }
+
+  async function load() {
+    loadingState.hidden = false;
+    fatalError.hidden = true;
+    appLayout.hidden = true;
+    try {
+      const [me, listsPayload] = await Promise.all([request("/auth/me"), request("/lists")]);
+      state.me = me;
+      state.lists = listsPayload.lists || [];
+      state.selectedListId = state.lists[0]?.id || null;
+      configureBanner();
+      render();
+      loadingState.hidden = true;
+      appLayout.hidden = false;
+    } catch (error) {
+      loadingState.hidden = true;
+      fatalError.hidden = false;
+      byId("fatal-error-message").textContent = error.message;
+    }
+  }
+
+  load();
+})();

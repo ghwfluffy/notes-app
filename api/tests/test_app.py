@@ -1,0 +1,223 @@
+from __future__ import annotations
+
+import json
+from collections.abc import Generator
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
+
+from app.agent_tokens import encode_agent_token
+from app.config import Settings, get_settings, validate_production
+from app.db import Base, get_db
+from app.main import app, serializer
+from app.models import AuditEvent
+
+
+TEST_SECRET = "integration-secret-for-notes-tests-1234567890"
+settings = Settings(
+    app_env="test",
+    app_base_path="",
+    public_url="http://testserver",
+    auth_base_url="/auth",
+    oauth_server_base_url="http://central-api:8000",
+    session_key="session-key-for-notes-tests-1234567890",
+    agent_integration_token_secret=TEST_SECRET,
+    federated_apps=json.dumps(
+        [
+            {
+                "slug": "federated-services",
+                "name": "Federated Services",
+                "baseUrl": "/auth?tab=apps",
+                "description": "Identity",
+            },
+            {
+                "slug": "notes",
+                "name": "My Notes",
+                "baseUrl": "/notes",
+                "description": "Lists",
+            },
+        ]
+    ),
+)
+
+test_engine = create_engine(
+    "sqlite+pysqlite:///:memory:",
+    connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
+)
+TestingSession = sessionmaker(bind=test_engine, expire_on_commit=False, class_=Session)
+
+
+def override_db() -> Generator[Session, None, None]:
+    db = TestingSession()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+def override_settings() -> Settings:
+    return settings
+
+
+app.dependency_overrides[get_db] = override_db
+app.dependency_overrides[get_settings] = override_settings
+client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def reset_database() -> Generator[None, None, None]:
+    Base.metadata.drop_all(test_engine)
+    Base.metadata.create_all(test_engine)
+    client.cookies.clear()
+    yield
+
+
+def authenticate(subject: str = "owner-1", name: str = "Owner") -> None:
+    client.cookies.set(
+        settings.session_cookie_name,
+        serializer(settings).dumps(
+            {
+                "sub": subject,
+                "name": name,
+                "preferred_username": subject,
+                "email": f"{subject}@example.test",
+            }
+        ),
+    )
+
+
+def agent_headers(subject: str, scope: str) -> dict[str, str]:
+    token = encode_agent_token(secret=TEST_SECRET, subject=subject, scope=scope)
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_browser_requires_auth_and_bootstraps_starter_lists() -> None:
+    assert client.get("/", follow_redirects=False).status_code == 302
+    assert client.get("/api/v1/lists").status_code == 401
+
+    authenticate()
+    index = client.get("/")
+    assert index.status_code == 200
+    assert '<base href="/">' in index.text
+
+    response = client.get("/api/v1/lists")
+    assert response.status_code == 200
+    lists = response.json()["lists"]
+    assert [value["name"] for value in lists] == [
+        "Movies to Watch",
+        "Games",
+        "Project Ideas",
+        "Date Ideas",
+        "Quotes",
+    ]
+
+    me = client.get("/api/v1/auth/me").json()
+    assert me["user"]["subject"] == "owner-1"
+    assert {entry["slug"] for entry in me["federatedApps"]} == {
+        "federated-services",
+        "notes",
+    }
+
+
+def test_browser_crud_and_deleted_starters_do_not_reappear() -> None:
+    authenticate()
+    starter_lists = client.get("/api/v1/lists").json()["lists"]
+    movies = starter_lists[0]
+
+    created = client.post(
+        f"/api/v1/lists/{movies['id']}/items",
+        json={"title": "Arrival", "details": "Watch again with commentary"},
+    )
+    assert created.status_code == 201
+    item = created.json()
+    assert item["completed"] is False
+
+    updated = client.patch(
+        f"/api/v1/items/{item['id']}",
+        json={"completed": True, "title": "Arrival (2016)"},
+    )
+    assert updated.status_code == 200
+    assert updated.json()["completed"] is True
+
+    custom = client.post(
+        "/api/v1/lists",
+        json={"name": "Restaurants", "description": "Places to try", "color": "#123abc"},
+    )
+    assert custom.status_code == 201
+    assert custom.json()["color"] == "#123abc"
+
+    for note_list in client.get("/api/v1/lists").json()["lists"]:
+        assert client.delete(f"/api/v1/lists/{note_list['id']}").status_code == 200
+    assert client.get("/api/v1/lists").json()["lists"] == []
+
+    first = client.post("/api/v1/lists", json={"name": "First"}).json()
+    second = client.post("/api/v1/lists", json={"name": "Second"}).json()
+    assert (first["position"], second["position"]) == (0, 1)
+
+
+def test_browser_data_is_isolated_by_oauth_subject() -> None:
+    authenticate("first-owner")
+    first_list = client.get("/api/v1/lists").json()["lists"][0]
+    client.post(f"/api/v1/lists/{first_list['id']}/items", json={"title": "Private item"})
+
+    authenticate("second-owner")
+    second_lists = client.get("/api/v1/lists").json()["lists"]
+    assert all(not note_list["items"] for note_list in second_lists)
+    assert client.get(f"/api/v1/lists/{first_list['id']}").status_code == 405
+    assert client.delete(f"/api/v1/lists/{first_list['id']}").status_code == 404
+
+
+def test_agent_routes_require_exact_scope_and_audit_agent_writes() -> None:
+    list_response = client.get(
+        "/api/agent/v1/lists",
+        headers=agent_headers("owner-agent", "notes.list_lists"),
+    )
+    assert list_response.status_code == 200
+    movies = list_response.json()["lists"][0]
+
+    wrong_scope = client.post(
+        f"/api/agent/v1/lists/{movies['id']}/items",
+        headers=agent_headers("owner-agent", "notes.list_lists"),
+        json={"title": "The Wild Robot"},
+    )
+    assert wrong_scope.status_code == 401
+
+    created = client.post(
+        f"/api/agent/v1/lists/{movies['id']}/items",
+        headers=agent_headers("owner-agent", "notes.create_item"),
+        json={"title": "The Wild Robot"},
+    )
+    assert created.status_code == 201
+
+    other_owner_items = client.get(
+        f"/api/agent/v1/lists/{movies['id']}/items",
+        headers=agent_headers("different-owner", "notes.list_items"),
+    )
+    assert other_owner_items.status_code == 404
+
+    with TestingSession() as db:
+        event = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.owner_subject == "owner-agent",
+                AuditEvent.action == "item.created",
+            )
+        )
+        assert event is not None
+        assert event.actor_type == "agent"
+
+
+def test_production_configuration_rejects_documentation_placeholders() -> None:
+    configured = Settings(
+        app_env="production",
+        public_url="https://notes.example.test",
+        postgres_password="change-me",
+        session_key="replace-with-at-least-32-random-characters",
+        agent_integration_token_secret="replace-with-the-shared-agent-integration-secret",
+    )
+
+    with pytest.raises(ValueError, match="SESSION_KEY, POSTGRES_PASSWORD, AGENT_INTEGRATION_TOKEN_SECRET"):
+        validate_production(configured)

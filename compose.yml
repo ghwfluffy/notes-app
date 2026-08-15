@@ -1,0 +1,35 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: notes
+      POSTGRES_PASSWORD: notes_dev_password
+      POSTGRES_DB: notes
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U notes -d notes"]
+      interval: 3s
+      timeout: 3s
+      retries: 20
+    volumes:
+      - notes-postgres:/var/lib/postgresql/data
+
+  notes:
+    build:
+      context: .
+      dockerfile: api/Dockerfile
+    env_file:
+      - path: ./.env
+        required: true
+    environment:
+      POSTGRES_HOST: postgres
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "8096:8000"
+
+volumes:
+  notes-postgres:

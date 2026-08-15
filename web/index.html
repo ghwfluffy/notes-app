@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f8f6fc">
+  <base href="__APP_BASE_HREF__">
+  <title>My Notes</title>
+  <link rel="stylesheet" href="./static/app.css">
+  <script>window.NOTES_CONFIG = { basePath: __APP_BASE_PATH__ };</script>
+  <script src="./static/federated-banner.js" defer></script>
+  <script src="./static/app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#notes-content">Skip to notes</a>
+  <ghwiz-federated-banner
+    id="federated-banner"
+    app-name="My Notes"
+    current-app-slug="notes"
+  ></ghwiz-federated-banner>
+
+  <main id="notes-content" class="page-shell">
+    <section class="page-heading" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Keep the good stuff</p>
+        <h1 id="page-title">My Notes</h1>
+        <p class="subtitle">Small lists for things you do not want to lose.</p>
+      </div>
+      <button id="new-list-button" class="button button-primary" type="button">
+        <span aria-hidden="true">＋</span> New list
+      </button>
+    </section>
+
+    <label class="search-field" for="search-input">
+      <span class="search-icon" aria-hidden="true">⌕</span>
+      <span class="sr-only">Search every list</span>
+      <input id="search-input" type="search" autocomplete="off" placeholder="Search every list…">
+      <button id="clear-search" class="clear-search" type="button" aria-label="Clear search" hidden>×</button>
+    </label>
+
+    <div id="loading-state" class="loading-card" role="status">
+      <span class="spinner" aria-hidden="true"></span>
+      Loading your lists…
+    </div>
+
+    <div id="app-layout" class="app-layout" hidden>
+      <aside class="list-sidebar" aria-label="Your lists">
+        <div class="sidebar-label">Lists</div>
+        <nav id="list-navigation" class="list-navigation"></nav>
+      </aside>
+
+      <section id="list-panel" class="list-panel" aria-live="polite"></section>
+    </div>
+
+    <section id="fatal-error" class="error-card" hidden>
+      <h2>We could not load your notes</h2>
+      <p id="fatal-error-message"></p>
+      <button id="retry-button" class="button button-secondary" type="button">Try again</button>
+    </section>
+  </main>
+
+  <dialog id="list-dialog" class="modal">
+    <form id="list-form" method="dialog">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">Collection</p>
+          <h2 id="list-dialog-title">New list</h2>
+        </div>
+        <button class="icon-button" type="button" data-dialog-close aria-label="Close">×</button>
+      </div>
+      <input id="list-id" type="hidden">
+      <label>
+        <span>Name</span>
+        <input id="list-name" maxlength="120" required placeholder="Books to read">
+      </label>
+      <label>
+        <span>Description <small>optional</small></span>
+        <textarea id="list-description" maxlength="2000" rows="3" placeholder="What belongs in this list?"></textarea>
+      </label>
+      <label class="color-field">
+        <span>Color</span>
+        <input id="list-color" type="color" value="#6750a4">
+      </label>
+      <div class="modal-actions">
+        <button class="button button-quiet" type="button" data-dialog-close>Cancel</button>
+        <button id="save-list-button" class="button button-primary" type="submit">Save list</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="item-dialog" class="modal">
+    <form id="item-form" method="dialog">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">List item</p>
+          <h2>Edit item</h2>
+        </div>
+        <button class="icon-button" type="button" data-dialog-close aria-label="Close">×</button>
+      </div>
+      <input id="item-id" type="hidden">
+      <label>
+        <span>Title</span>
+        <input id="item-title" maxlength="500" required>
+      </label>
+      <label>
+        <span>Details <small>optional</small></span>
+        <textarea id="item-details" maxlength="10000" rows="5" placeholder="Add context, a link, or why you saved it…"></textarea>
+      </label>
+      <label>
+        <span>List</span>
+        <select id="item-list"></select>
+      </label>
+      <label class="check-field">
+        <input id="item-completed" type="checkbox">
+        <span>Mark complete</span>
+      </label>
+      <div class="modal-actions">
+        <button class="button button-quiet" type="button" data-dialog-close>Cancel</button>
+        <button id="save-item-button" class="button button-primary" type="submit">Save changes</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
