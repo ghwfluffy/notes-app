@@ -102,7 +102,7 @@
         </div>
         <button class="icon-button" type="button" data-dialog-close aria-label="Close">×</button>
       </div>
-      <p class="reorder-help">Drag the handles or use the arrow buttons. This order is used everywhere, including by your assistant.</p>
+      <p id="reorder-help" class="reorder-help">Drag a row by its handle, or use Move up and Move down. You can also press arrow keys while its drag handle is focused.</p>
       <ol id="reorder-list" class="reorder-list"></ol>
       <p id="reorder-status" class="sr-only" aria-live="polite"></p>
       <div class="modal-actions reorder-actions">
@@ -129,10 +129,6 @@
       <label>
         <span>Details <small>optional</small></span>
         <textarea id="item-details" maxlength="10000" rows="5" placeholder="Add context, a link, or why you saved it…"></textarea>
-      </label>
-      <label>
-        <span>List</span>
-        <select id="item-list"></select>
       </label>
       <label class="check-field">
         <input id="item-completed" type="checkbox">

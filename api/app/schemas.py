@@ -53,19 +53,18 @@ class ItemCreate(BaseModel):
 
 
 class ItemPatch(BaseModel):
-    model_config = ConfigDict(str_strip_whitespace=True)
+    model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
 
     title: str | None = Field(default=None, min_length=1, max_length=500)
     details: str | None = Field(default=None, max_length=10_000)
     completed: bool | None = None
     position: int | None = Field(default=None, ge=0)
-    list_id: str | None = Field(default=None, min_length=1, max_length=36)
 
     @model_validator(mode="after")
     def has_update(self) -> ItemPatch:
         if not self.model_fields_set:
             raise ValueError("At least one item field is required.")
-        for field in ("title", "completed", "position", "list_id"):
+        for field in ("title", "completed", "position"):
             if field in self.model_fields_set and getattr(self, field) is None:
                 raise ValueError(f"{field} cannot be null.")
         return self

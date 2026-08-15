@@ -32,12 +32,22 @@ Lists and items have stable UUID identifiers and explicit positions. Deleting a
 list cascades to its items. Meaningful writes create an audit row with the owner,
 actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 
-The browser exposes a dedicated reorder sheet with touch/mouse drag handles,
-keyboard arrows, and large move buttons. It saves the complete ordered id set in
-one request. The API locks the owner's current list rows, requires every current
-list exactly once, assigns contiguous positions, and rejects stale or partial
-orders without changing anything. This same atomic contract is available to the
+The browser keeps list navigation and item rows deliberately compact on mobile:
+smaller readable type, reduced padding and gaps, and wrapping content sit inside
+separate 44px interaction targets. The dedicated reorder sheet is an ordered-row
+editor with visible position numbers, a labeled touch/mouse drag handle, compact
+move-up/down fallbacks, keyboard Arrow/Home/End handling, focus restoration, and
+live-region position announcements. It saves the complete ordered id set in one
+request. The API locks the owner's current list rows, requires every current list
+exactly once, assigns contiguous positions, and rejects stale or partial orders
+without changing anything. This same atomic contract is available to the
 assistant through the exact `notes.reorder_lists` scope.
+
+An item's parent list is fixed when the item is created. Item editing can change
+title, details, completion, or position within that list, but neither the browser
+nor assistant update contract offers cross-list movement. Item patch schemas
+forbid `list_id`, so older or hand-built browser and scoped-assistant requests
+cannot bypass that product rule.
 
 ## Browser loading lifecycle
 
@@ -66,7 +76,8 @@ secret is shared out-of-band by deployment configuration. Browser cookies are
 never accepted by assistant routes, and assistant tokens are never accepted by
 browser routes. List reordering requires a complete list-id order, so a model
 must first read the current lists and cannot omit, duplicate, or import another
-owner's list while moving one list.
+owner's list while moving one list. Item updates cannot change `list_id`; the
+assistant may edit or reorder an item only within its creation list.
 
 ## Federated banner
 

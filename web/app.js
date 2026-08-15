@@ -301,8 +301,11 @@
 
   function focusReorderControl(listId, direction = null) {
     const row = [...reorderList.children].find((candidate) => candidate.dataset.listId === listId);
-    const control = direction
+    const requestedControl = direction
       ? row?.querySelector(`[data-direction="${direction}"]`)
+      : row?.querySelector(".reorder-grip");
+    const control = requestedControl && !requestedControl.disabled
+      ? requestedControl
       : row?.querySelector(".reorder-grip");
     control?.focus();
   }
@@ -343,6 +346,7 @@
       } else {
         reorderList.insertBefore(row, target.nextSibling);
       }
+      updateReorderPositions();
     };
 
     const finish = () => {
@@ -363,6 +367,13 @@
     grip.addEventListener("pointercancel", finish);
   }
 
+  function updateReorderPositions() {
+    for (const [index, row] of [...reorderList.children].entries()) {
+      const position = row.querySelector(".reorder-position");
+      if (position) position.textContent = String(index + 1);
+    }
+  }
+
   function renderReorderList() {
     reorderList.replaceChildren();
     for (const [index, listId] of state.reorderListIds.entries()) {
@@ -372,9 +383,16 @@
       row.dataset.listId = noteList.id;
       row.style.setProperty("--list-color", noteList.color);
 
-      const grip = element("button", "reorder-grip", "⠿");
+      const position = element("span", "reorder-position", String(index + 1));
+      position.setAttribute("aria-hidden", "true");
+
+      const grip = element("button", "reorder-grip");
       grip.type = "button";
-      grip.setAttribute("aria-label", `Drag ${noteList.name}`);
+      grip.append(element("span", "reorder-grip-icon", "⠿"), element("span", "", "Drag"));
+      grip.firstElementChild?.setAttribute("aria-hidden", "true");
+      grip.setAttribute("aria-label", `Drag ${noteList.name}. Position ${index + 1} of ${state.reorderListIds.length}. Use arrow keys to move.`);
+      grip.setAttribute("aria-describedby", "reorder-help");
+      grip.setAttribute("aria-keyshortcuts", "ArrowUp ArrowDown Home End");
       grip.title = `Drag ${noteList.name}`;
       grip.addEventListener("pointerdown", (event) => startPointerReorder(event, row, grip));
       grip.addEventListener("keydown", (event) => {
@@ -384,6 +402,12 @@
         } else if (event.key === "ArrowDown") {
           event.preventDefault();
           moveReorderList(noteList.id, 1, null);
+        } else if (event.key === "Home") {
+          event.preventDefault();
+          moveReorderList(noteList.id, -index, null);
+        } else if (event.key === "End") {
+          event.preventDefault();
+          moveReorderList(noteList.id, state.reorderListIds.length - index - 1, null);
         }
       });
 
@@ -391,20 +415,24 @@
       copy.append(element("span", "list-dot"), element("span", "reorder-name", noteList.name));
 
       const controls = element("div", "reorder-controls");
+      controls.setAttribute("role", "group");
+      controls.setAttribute("aria-label", `Move ${noteList.name}`);
       const up = element("button", "reorder-step", "↑");
       up.type = "button";
       up.dataset.direction = "up";
       up.disabled = index === 0;
       up.setAttribute("aria-label", `Move ${noteList.name} up`);
+      up.title = `Move ${noteList.name} up`;
       up.addEventListener("click", () => moveReorderList(noteList.id, -1, "up"));
       const down = element("button", "reorder-step", "↓");
       down.type = "button";
       down.dataset.direction = "down";
       down.disabled = index === state.reorderListIds.length - 1;
       down.setAttribute("aria-label", `Move ${noteList.name} down`);
+      down.title = `Move ${noteList.name} down`;
       down.addEventListener("click", () => moveReorderList(noteList.id, 1, "down"));
       controls.append(up, down);
-      row.append(grip, copy, controls);
+      row.append(position, copy, grip, controls);
       reorderList.append(row);
     }
   }
@@ -422,14 +450,6 @@
     byId("item-title").value = item.title;
     byId("item-details").value = item.details || "";
     byId("item-completed").checked = item.completed;
-    const select = byId("item-list");
-    select.replaceChildren();
-    for (const noteList of state.lists) {
-      const option = element("option", "", noteList.name);
-      option.value = noteList.id;
-      option.selected = noteList.id === item.list_id;
-      select.append(option);
-    }
     itemDialog.showModal();
     window.setTimeout(() => byId("item-title").focus(), 0);
   }
@@ -529,15 +549,13 @@
         title: byId("item-title").value.trim(),
         details: byId("item-details").value.trim() || null,
         completed: byId("item-completed").checked,
-        list_id: byId("item-list").value,
       };
       await request(`/items/${encodeURIComponent(id)}`, {
         method: "PATCH",
         body: JSON.stringify(payload),
       });
       itemDialog.close();
-      state.selectedListId = payload.list_id;
-      await reloadLists(payload.list_id);
+      await reloadLists();
       showToast("Item updated.");
     } catch (error) {
       showToast(error.message, true);

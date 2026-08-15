@@ -406,8 +406,6 @@ def update_item_record(
     changed: list[str] = []
     for field in payload.model_fields_set:
         value = getattr(payload, field)
-        if field == "list_id" and isinstance(value, str):
-            owned_list(db, owner, value)
         if field == "details" and value == "":
             value = None
         setattr(item, field, value)

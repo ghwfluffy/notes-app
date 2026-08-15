@@ -160,6 +160,27 @@ def test_browser_crud_and_deleted_starters_do_not_reappear() -> None:
     assert (first["position"], second["position"]) == (0, 1)
 
 
+def test_browser_rejects_moving_an_item_to_another_list() -> None:
+    authenticate()
+    lists = client.get("/api/v1/lists").json()["lists"]
+    source, destination = lists[:2]
+    item = client.post(
+        f"/api/v1/lists/{source['id']}/items",
+        json={"title": "Keep me here"},
+    ).json()
+
+    response = client.patch(
+        f"/api/v1/items/{item['id']}",
+        json={"list_id": destination["id"]},
+    )
+
+    assert response.status_code == 422
+    assert any(error["loc"][-1] == "list_id" for error in response.json()["detail"])
+    reloaded = client.get("/api/v1/lists").json()["lists"]
+    assert [entry["id"] for entry in reloaded[0]["items"]] == [item["id"]]
+    assert reloaded[1]["items"] == []
+
+
 def test_browser_reload_returns_custom_lists_and_items_with_starters() -> None:
     authenticate()
     starter_names = {
@@ -274,6 +295,27 @@ def test_browser_loading_state_is_hidden_correctly_and_requests_are_bounded() ->
     assert 'method: "PUT"' in javascript
     assert 'body: JSON.stringify({ list_ids: state.reorderListIds })' in javascript
     assert 'grip.addEventListener("pointerdown"' in javascript
+    assert 'class="reorder-help"' in index
+    assert 'class="reorder-list"' in index
+    assert '"reorder-position"' in javascript
+    assert '"reorder-grip-icon"' in javascript
+    assert 'aria-keyshortcuts' in javascript
+    assert 'focusReorderControl(listId' in javascript
+    assert "requestedControl && !requestedControl.disabled" in javascript
+    assert 'announceReorder(listId)' in javascript
+    assert 'up.dataset.direction = "up"' in javascript
+    assert 'down.dataset.direction = "down"' in javascript
+    assert 'controls.setAttribute("role", "group")' in javascript
+    assert "up.title = `Move ${noteList.name} up`" in javascript
+    assert "down.title = `Move ${noteList.name} down`" in javascript
+    assert "touch-action: none" in css
+    assert "font-size: 0.88rem" in css
+    assert "padding: 0.4rem 0.5rem" in css
+    assert "font-size: 0.93rem" in css
+    assert "padding: 0.5rem 0.55rem" in css
+    assert 'id="item-list"' not in index
+    assert 'byId("item-list")' not in javascript
+    assert "list_id: byId" not in javascript
 
 
 def test_browser_data_is_isolated_by_oauth_subject() -> None:
@@ -325,6 +367,38 @@ def test_agent_routes_require_exact_scope_and_audit_agent_writes() -> None:
         )
         assert event is not None
         assert event.actor_type == "agent"
+
+
+def test_agent_rejects_moving_an_item_to_another_list() -> None:
+    lists = client.get(
+        "/api/agent/v1/lists",
+        headers=agent_headers("owner-agent", "notes.list_lists"),
+    ).json()["lists"]
+    source, destination = lists[:2]
+    item = client.post(
+        f"/api/agent/v1/lists/{source['id']}/items",
+        headers=agent_headers("owner-agent", "notes.create_item"),
+        json={"title": "Still belongs here"},
+    ).json()
+
+    response = client.patch(
+        f"/api/agent/v1/items/{item['id']}",
+        headers=agent_headers("owner-agent", "notes.update_item"),
+        json={"list_id": destination["id"]},
+    )
+
+    assert response.status_code == 422
+    assert any(error["loc"][-1] == "list_id" for error in response.json()["detail"])
+    source_items = client.get(
+        f"/api/agent/v1/lists/{source['id']}/items",
+        headers=agent_headers("owner-agent", "notes.list_items"),
+    ).json()["items"]
+    destination_items = client.get(
+        f"/api/agent/v1/lists/{destination['id']}/items",
+        headers=agent_headers("owner-agent", "notes.list_items"),
+    ).json()["items"]
+    assert [entry["id"] for entry in source_items] == [item["id"]]
+    assert destination_items == []
 
 
 def test_agent_can_reorder_only_its_owners_lists_with_exact_scope() -> None:
