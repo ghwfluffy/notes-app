@@ -32,6 +32,24 @@ Lists and items have stable UUID identifiers and explicit positions. Deleting a
 list cascades to its items. Meaningful writes create an audit row with the owner,
 actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 
+## Browser loading lifecycle
+
+The browser starts with the loading card visible and both the app layout and
+fatal-error card hidden. A global `[hidden] { display: none !important; }` rule
+is part of the frontend state contract: component and responsive `display`
+rules must never override those state transitions.
+
+Initial loading requests the authenticated user and `/api/v1/lists` together.
+Every browser API request has a 15-second deadline implemented with an
+`AbortController`, and its timer is cleared after the request settles. A `401`
+continues to redirect through central OAuth. On success, the response hydrates
+all starter and owner-created lists and their items before the layout replaces
+the loading card. An owner with no lists sees the normal in-layout empty state.
+Timeouts, network failures, and API errors replace the loading card with a
+bounded error state and retry action; loading, content, and fatal error are
+therefore mutually exclusive. A retry supersedes any earlier bootstrap attempt
+so a stale response cannot replace the newest loading result.
+
 ## Assistant boundary
 
 Assistant routes live below `/api/agent/v1`. Each operation requires a

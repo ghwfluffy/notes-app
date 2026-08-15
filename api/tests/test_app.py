@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from collections.abc import Generator
 
 import pytest
@@ -157,6 +158,64 @@ def test_browser_crud_and_deleted_starters_do_not_reappear() -> None:
     first = client.post("/api/v1/lists", json={"name": "First"}).json()
     second = client.post("/api/v1/lists", json={"name": "Second"}).json()
     assert (first["position"], second["position"]) == (0, 1)
+
+
+def test_browser_reload_returns_custom_lists_and_items_with_starters() -> None:
+    authenticate()
+    starter_names = {
+        note_list["name"] for note_list in client.get("/api/v1/lists").json()["lists"]
+    }
+
+    custom = client.post(
+        "/api/v1/lists",
+        json={"name": "News to Share", "description": "Interesting finds", "color": "#38608f"},
+    ).json()
+    item = client.post(
+        f"/api/v1/lists/{custom['id']}/items",
+        json={"title": "A cool discovery", "details": "Send this one to the owner"},
+    ).json()
+
+    reloaded_lists = client.get("/api/v1/lists").json()["lists"]
+    assert starter_names <= {note_list["name"] for note_list in reloaded_lists}
+    reloaded_custom = next(note_list for note_list in reloaded_lists if note_list["id"] == custom["id"])
+    assert reloaded_custom["name"] == "News to Share"
+    assert reloaded_custom["description"] == "Interesting finds"
+    assert reloaded_custom["active_item_count"] == 1
+    assert reloaded_custom["items"] == [item]
+
+
+def test_browser_loading_state_is_hidden_correctly_and_requests_are_bounded() -> None:
+    authenticate()
+    index = client.get("/").text
+    css = client.get("/static/app.css").text
+    javascript = client.get("/static/app.js").text
+
+    assert 'id="loading-state"' in index
+    assert re.search(r'id="app-layout"[^>]*\shidden(?:[\s>])', index)
+    assert re.search(r'id="fatal-error"[^>]*\shidden(?:[\s>])', index)
+    assert re.search(r"\[hidden\]\s*\{\s*display:\s*none\s*!important;\s*\}", css)
+    assert "const REQUEST_TIMEOUT_MS = 15000;" in javascript
+    assert "const controller = new AbortController();" in javascript
+    assert "window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)" in javascript
+    assert "signal: controller.signal" in javascript
+    assert "window.clearTimeout(timeoutId)" in javascript
+    assert "My Notes took too long to respond. Try again." in javascript
+    assert "My Notes could not connect. Check your connection and try again." in javascript
+    assert "const loadAttempt = ++latestLoadAttempt;" in javascript
+    assert javascript.count("if (loadAttempt !== latestLoadAttempt) return;") == 2
+    assert "loadingState.hidden = false;\n    fatalError.hidden = true;\n    appLayout.hidden = true;" in javascript
+    assert (
+        "loadingState.hidden = true;\n"
+        "      fatalError.hidden = true;\n"
+        "      appLayout.hidden = false;"
+    ) in javascript
+    assert (
+        "loadingState.hidden = true;\n"
+        "      fatalError.hidden = false;\n"
+        "      appLayout.hidden = true;"
+    ) in javascript
+    assert "if (response.status === 401)" in javascript
+    assert "/auth/oauth/login?next=" in javascript
 
 
 def test_browser_data_is_isolated_by_oauth_subject() -> None:

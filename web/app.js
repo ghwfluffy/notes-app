@@ -4,6 +4,7 @@
   const configuredBase = window.NOTES_CONFIG?.basePath || "";
   const basePath = configuredBase === "/" ? "" : configuredBase.replace(/\/$/, "");
   const apiBase = `${basePath}/api/v1`;
+  const REQUEST_TIMEOUT_MS = 15000;
   const state = {
     me: null,
     lists: [],
@@ -22,6 +23,7 @@
   const listDialog = byId("list-dialog");
   const itemDialog = byId("item-dialog");
   let toastTimer = null;
+  let latestLoadAttempt = 0;
 
   function element(tag, className, text) {
     const node = document.createElement(tag);
@@ -40,23 +42,43 @@
   }
 
   async function request(path, options = {}) {
-    const response = await fetch(`${apiBase}${path}`, {
-      ...options,
-      headers: {
-        "content-type": "application/json",
-        ...(options.headers || {}),
-      },
-    });
-    if (response.status === 401) {
-      window.location.assign(`${apiBase}/auth/oauth/login?next=${encodeURIComponent(`${basePath}/`)}`);
-      throw new Error("Authentication required.");
+    const controller = new AbortController();
+    const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch(`${apiBase}${path}`, {
+        ...options,
+        headers: {
+          "content-type": "application/json",
+          ...(options.headers || {}),
+        },
+        signal: controller.signal,
+      });
+      if (response.status === 401) {
+        window.location.assign(`${apiBase}/auth/oauth/login?next=${encodeURIComponent(`${basePath}/`)}`);
+        throw new Error("Authentication required.");
+      }
+      let payload = null;
+      try {
+        payload = await response.json();
+      } catch (error) {
+        if (controller.signal.aborted) throw error;
+      }
+      if (!response.ok) {
+        const detail = typeof payload?.detail === "string" ? payload.detail : "The request could not be completed.";
+        throw new Error(detail);
+      }
+      return payload;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        throw new Error("My Notes took too long to respond. Try again.");
+      }
+      if (error instanceof TypeError) {
+        throw new Error("My Notes could not connect. Check your connection and try again.");
+      }
+      throw error;
+    } finally {
+      window.clearTimeout(timeoutId);
     }
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      const detail = typeof payload?.detail === "string" ? payload.detail : "The request could not be completed.";
-      throw new Error(detail);
-    }
-    return payload;
   }
 
   function selectedList() {
@@ -401,21 +423,26 @@
   }
 
   async function load() {
+    const loadAttempt = ++latestLoadAttempt;
     loadingState.hidden = false;
     fatalError.hidden = true;
     appLayout.hidden = true;
     try {
       const [me, listsPayload] = await Promise.all([request("/auth/me"), request("/lists")]);
+      if (loadAttempt !== latestLoadAttempt) return;
       state.me = me;
       state.lists = listsPayload.lists || [];
       state.selectedListId = state.lists[0]?.id || null;
       configureBanner();
       render();
       loadingState.hidden = true;
+      fatalError.hidden = true;
       appLayout.hidden = false;
     } catch (error) {
+      if (loadAttempt !== latestLoadAttempt) return;
       loadingState.hidden = true;
       fatalError.hidden = false;
+      appLayout.hidden = true;
       byId("fatal-error-message").textContent = error.message;
     }
   }
