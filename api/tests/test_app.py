@@ -184,6 +184,58 @@ def test_browser_reload_returns_custom_lists_and_items_with_starters() -> None:
     assert reloaded_custom["items"] == [item]
 
 
+def test_browser_reorders_every_list_atomically_and_audits_the_change() -> None:
+    authenticate()
+    lists = client.get("/api/v1/lists").json()["lists"]
+    desired_ids = [lists[2]["id"], lists[0]["id"], lists[1]["id"], lists[4]["id"], lists[3]["id"]]
+
+    response = client.put("/api/v1/lists/order", json={"list_ids": desired_ids})
+
+    assert response.status_code == 200
+    assert [note_list["id"] for note_list in response.json()["lists"]] == desired_ids
+    assert [note_list["position"] for note_list in response.json()["lists"]] == list(range(5))
+    assert [note_list["id"] for note_list in client.get("/api/v1/lists").json()["lists"]] == desired_ids
+
+    duplicate = client.put(
+        "/api/v1/lists/order",
+        json={"list_ids": [desired_ids[0], desired_ids[0], *desired_ids[2:]]},
+    )
+    assert duplicate.status_code == 422
+    missing = client.put("/api/v1/lists/order", json={"list_ids": desired_ids[:-1]})
+    assert missing.status_code == 409
+    assert [note_list["id"] for note_list in client.get("/api/v1/lists").json()["lists"]] == desired_ids
+
+    with TestingSession() as db:
+        event = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.owner_subject == "owner-1",
+                AuditEvent.action == "lists.reordered",
+            )
+        )
+        assert event is not None
+        assert event.actor_type == "user"
+        assert event.details == {"list_ids": desired_ids, "changed_count": 5}
+
+
+def test_single_list_position_patch_keeps_a_contiguous_order() -> None:
+    authenticate()
+    lists = client.get("/api/v1/lists").json()["lists"]
+
+    moved = client.patch(f"/api/v1/lists/{lists[4]['id']}", json={"position": 1})
+
+    assert moved.status_code == 200
+    reordered = client.get("/api/v1/lists").json()["lists"]
+    assert [note_list["id"] for note_list in reordered] == [
+        lists[0]["id"],
+        lists[4]["id"],
+        lists[1]["id"],
+        lists[2]["id"],
+        lists[3]["id"],
+    ]
+    assert [note_list["position"] for note_list in reordered] == list(range(5))
+    assert client.patch(f"/api/v1/lists/{lists[0]['id']}", json={"position": 5}).status_code == 422
+
+
 def test_browser_loading_state_is_hidden_correctly_and_requests_are_bounded() -> None:
     authenticate()
     index = client.get("/").text
@@ -216,6 +268,12 @@ def test_browser_loading_state_is_hidden_correctly_and_requests_are_bounded() ->
     ) in javascript
     assert "if (response.status === 401)" in javascript
     assert "/auth/oauth/login?next=" in javascript
+    assert 'id="reorder-dialog"' in index
+    assert 'id="reorder-lists-button"' in index
+    assert 'request("/lists/order"' in javascript
+    assert 'method: "PUT"' in javascript
+    assert 'body: JSON.stringify({ list_ids: state.reorderListIds })' in javascript
+    assert 'grip.addEventListener("pointerdown"' in javascript
 
 
 def test_browser_data_is_isolated_by_oauth_subject() -> None:
@@ -263,6 +321,47 @@ def test_agent_routes_require_exact_scope_and_audit_agent_writes() -> None:
             select(AuditEvent).where(
                 AuditEvent.owner_subject == "owner-agent",
                 AuditEvent.action == "item.created",
+            )
+        )
+        assert event is not None
+        assert event.actor_type == "agent"
+
+
+def test_agent_can_reorder_only_its_owners_lists_with_exact_scope() -> None:
+    lists = client.get(
+        "/api/agent/v1/lists",
+        headers=agent_headers("owner-agent", "notes.list_lists"),
+    ).json()["lists"]
+    desired_ids = [note_list["id"] for note_list in reversed(lists)]
+
+    wrong_scope = client.put(
+        "/api/agent/v1/lists/order",
+        headers=agent_headers("owner-agent", "notes.update_list"),
+        json={"list_ids": desired_ids},
+    )
+    assert wrong_scope.status_code == 401
+
+    response = client.put(
+        "/api/agent/v1/lists/order",
+        headers=agent_headers("owner-agent", "notes.reorder_lists"),
+        json={"list_ids": desired_ids},
+    )
+    assert response.status_code == 200
+    assert [note_list["id"] for note_list in response.json()["lists"]] == desired_ids
+    assert all(note_list["items"] == [] for note_list in response.json()["lists"])
+
+    foreign = client.put(
+        "/api/agent/v1/lists/order",
+        headers=agent_headers("different-owner", "notes.reorder_lists"),
+        json={"list_ids": desired_ids},
+    )
+    assert foreign.status_code == 409
+
+    with TestingSession() as db:
+        event = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.owner_subject == "owner-agent",
+                AuditEvent.action == "lists.reordered",
             )
         )
         assert event is not None

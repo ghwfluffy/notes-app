@@ -26,9 +26,14 @@
         <h1 id="page-title">My Notes</h1>
         <p class="subtitle">Small lists for things you do not want to lose.</p>
       </div>
-      <button id="new-list-button" class="button button-primary" type="button">
-        <span aria-hidden="true">＋</span> New list
-      </button>
+      <div class="page-actions">
+        <button id="reorder-lists-button" class="button button-secondary" type="button" disabled>
+          <span aria-hidden="true">⇅</span> Reorder
+        </button>
+        <button id="new-list-button" class="button button-primary" type="button">
+          <span aria-hidden="true">＋</span> New list
+        </button>
+      </div>
     </section>
 
     <label class="search-field" for="search-input">
@@ -84,6 +89,25 @@
       <div class="modal-actions">
         <button class="button button-quiet" type="button" data-dialog-close>Cancel</button>
         <button id="save-list-button" class="button button-primary" type="submit">Save list</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reorder-dialog" class="modal reorder-modal">
+    <form id="reorder-form" method="dialog">
+      <div class="modal-heading">
+        <div>
+          <p class="eyebrow">List order</p>
+          <h2>Put your lists in order</h2>
+        </div>
+        <button class="icon-button" type="button" data-dialog-close aria-label="Close">×</button>
+      </div>
+      <p class="reorder-help">Drag the handles or use the arrow buttons. This order is used everywhere, including by your assistant.</p>
+      <ol id="reorder-list" class="reorder-list"></ol>
+      <p id="reorder-status" class="sr-only" aria-live="polite"></p>
+      <div class="modal-actions reorder-actions">
+        <button class="button button-quiet" type="button" data-dialog-close>Cancel</button>
+        <button id="save-order-button" class="button button-primary" type="submit">Save order</button>
       </div>
     </form>
   </dialog>

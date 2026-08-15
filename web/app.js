@@ -10,6 +10,7 @@
     lists: [],
     selectedListId: null,
     query: "",
+    reorderListIds: [],
   };
 
   const byId = (id) => document.getElementById(id);
@@ -21,6 +22,8 @@
   const searchInput = byId("search-input");
   const clearSearch = byId("clear-search");
   const listDialog = byId("list-dialog");
+  const reorderDialog = byId("reorder-dialog");
+  const reorderList = byId("reorder-list");
   const itemDialog = byId("item-dialog");
   let toastTimer = null;
   let latestLoadAttempt = 0;
@@ -273,6 +276,7 @@
       state.selectedListId = state.lists[0]?.id || null;
     }
     renderNavigation();
+    byId("reorder-lists-button").disabled = state.lists.length < 2;
     listPanel.replaceChildren();
     if (state.query.trim()) renderSearchResults();
     else renderSelectedList();
@@ -293,6 +297,124 @@
     byId("list-color").value = noteList?.color || "#6750a4";
     listDialog.showModal();
     window.setTimeout(() => byId("list-name").focus(), 0);
+  }
+
+  function focusReorderControl(listId, direction = null) {
+    const row = [...reorderList.children].find((candidate) => candidate.dataset.listId === listId);
+    const control = direction
+      ? row?.querySelector(`[data-direction="${direction}"]`)
+      : row?.querySelector(".reorder-grip");
+    control?.focus();
+  }
+
+  function announceReorder(listId) {
+    const noteList = state.lists.find((candidate) => candidate.id === listId);
+    const position = state.reorderListIds.indexOf(listId);
+    if (!noteList || position < 0) return;
+    byId("reorder-status").textContent = `${noteList.name} is now ${position + 1} of ${state.reorderListIds.length}.`;
+  }
+
+  function moveReorderList(listId, offset, direction) {
+    const currentIndex = state.reorderListIds.indexOf(listId);
+    const nextIndex = currentIndex + offset;
+    if (currentIndex < 0 || nextIndex < 0 || nextIndex >= state.reorderListIds.length) return;
+    state.reorderListIds.splice(currentIndex, 1);
+    state.reorderListIds.splice(nextIndex, 0, listId);
+    renderReorderList();
+    focusReorderControl(listId, direction);
+    announceReorder(listId);
+  }
+
+  function startPointerReorder(event, row, grip) {
+    if (!event.isPrimary || event.button !== 0) return;
+    event.preventDefault();
+    const listId = row.dataset.listId;
+    const startingIndex = state.reorderListIds.indexOf(listId);
+    grip.setPointerCapture(event.pointerId);
+    row.classList.add("dragging");
+    reorderList.classList.add("is-dragging");
+
+    const move = (moveEvent) => {
+      const target = document.elementFromPoint(moveEvent.clientX, moveEvent.clientY)?.closest(".reorder-row");
+      if (!target || target === row || target.parentElement !== reorderList) return;
+      const targetBounds = target.getBoundingClientRect();
+      if (moveEvent.clientY < targetBounds.top + targetBounds.height / 2) {
+        reorderList.insertBefore(row, target);
+      } else {
+        reorderList.insertBefore(row, target.nextSibling);
+      }
+    };
+
+    const finish = () => {
+      grip.removeEventListener("pointermove", move);
+      grip.removeEventListener("pointerup", finish);
+      grip.removeEventListener("pointercancel", finish);
+      row.classList.remove("dragging");
+      reorderList.classList.remove("is-dragging");
+      state.reorderListIds = [...reorderList.children].map((candidate) => candidate.dataset.listId);
+      const changed = state.reorderListIds.indexOf(listId) !== startingIndex;
+      renderReorderList();
+      focusReorderControl(listId);
+      if (changed) announceReorder(listId);
+    };
+
+    grip.addEventListener("pointermove", move);
+    grip.addEventListener("pointerup", finish);
+    grip.addEventListener("pointercancel", finish);
+  }
+
+  function renderReorderList() {
+    reorderList.replaceChildren();
+    for (const [index, listId] of state.reorderListIds.entries()) {
+      const noteList = state.lists.find((candidate) => candidate.id === listId);
+      if (!noteList) continue;
+      const row = element("li", "reorder-row");
+      row.dataset.listId = noteList.id;
+      row.style.setProperty("--list-color", noteList.color);
+
+      const grip = element("button", "reorder-grip", "⠿");
+      grip.type = "button";
+      grip.setAttribute("aria-label", `Drag ${noteList.name}`);
+      grip.title = `Drag ${noteList.name}`;
+      grip.addEventListener("pointerdown", (event) => startPointerReorder(event, row, grip));
+      grip.addEventListener("keydown", (event) => {
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          moveReorderList(noteList.id, -1, null);
+        } else if (event.key === "ArrowDown") {
+          event.preventDefault();
+          moveReorderList(noteList.id, 1, null);
+        }
+      });
+
+      const copy = element("div", "reorder-copy");
+      copy.append(element("span", "list-dot"), element("span", "reorder-name", noteList.name));
+
+      const controls = element("div", "reorder-controls");
+      const up = element("button", "reorder-step", "↑");
+      up.type = "button";
+      up.dataset.direction = "up";
+      up.disabled = index === 0;
+      up.setAttribute("aria-label", `Move ${noteList.name} up`);
+      up.addEventListener("click", () => moveReorderList(noteList.id, -1, "up"));
+      const down = element("button", "reorder-step", "↓");
+      down.type = "button";
+      down.dataset.direction = "down";
+      down.disabled = index === state.reorderListIds.length - 1;
+      down.setAttribute("aria-label", `Move ${noteList.name} down`);
+      down.addEventListener("click", () => moveReorderList(noteList.id, 1, "down"));
+      controls.append(up, down);
+      row.append(grip, copy, controls);
+      reorderList.append(row);
+    }
+  }
+
+  function openReorderDialog() {
+    state.reorderListIds = state.lists.map((noteList) => noteList.id);
+    byId("reorder-status").textContent = "";
+    renderReorderList();
+    reorderDialog.showModal();
+    window.setTimeout(() => reorderList.querySelector(".reorder-grip")?.focus(), 0);
   }
 
   function openItemDialog(item) {
@@ -337,6 +459,7 @@
   }
 
   byId("new-list-button").addEventListener("click", () => openListDialog());
+  byId("reorder-lists-button").addEventListener("click", openReorderDialog);
   byId("retry-button").addEventListener("click", () => load());
   searchInput.addEventListener("input", () => {
     state.query = searchInput.value;
@@ -369,6 +492,26 @@
       listDialog.close();
       await reloadLists(saved.id);
       showToast(id ? "List updated." : "List created.");
+    } catch (error) {
+      showToast(error.message, true);
+    } finally {
+      saveButton.disabled = false;
+    }
+  });
+
+  byId("reorder-form").addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const saveButton = byId("save-order-button");
+    saveButton.disabled = true;
+    try {
+      const payload = await request("/lists/order", {
+        method: "PUT",
+        body: JSON.stringify({ list_ids: state.reorderListIds }),
+      });
+      state.lists = payload.lists || [];
+      reorderDialog.close();
+      render();
+      showToast("List order saved.");
     } catch (error) {
       showToast(error.message, true);
     } finally {
@@ -413,7 +556,7 @@
   });
   itemActions.prepend(deleteItemButton);
 
-  for (const dialog of [listDialog, itemDialog]) {
+  for (const dialog of [listDialog, reorderDialog, itemDialog]) {
     dialog.addEventListener("click", (event) => {
       if (event.target === dialog) dialog.close();
     });

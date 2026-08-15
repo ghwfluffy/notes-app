@@ -3,7 +3,8 @@
 A small, mobile-first app for keeping private lists such as movies to watch,
 games, project ideas, date ideas, and quotes. It uses central OAuth for browser
 sessions and exposes a separately scoped API so the GHWIZ assistant can manage
-the signed-in owner's lists.
+the signed-in owner's lists. Lists can be reordered from a touch-friendly sheet
+or by asking the assistant to move them into a particular order.
 
 The repository is deployment-neutral. Its default browser prefix is `/notes`;
 the private production prefix is supplied only by the parent deployment repo.

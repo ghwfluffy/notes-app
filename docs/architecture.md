@@ -32,6 +32,13 @@ Lists and items have stable UUID identifiers and explicit positions. Deleting a
 list cascades to its items. Meaningful writes create an audit row with the owner,
 actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 
+The browser exposes a dedicated reorder sheet with touch/mouse drag handles,
+keyboard arrows, and large move buttons. It saves the complete ordered id set in
+one request. The API locks the owner's current list rows, requires every current
+list exactly once, assigns contiguous positions, and rejects stale or partial
+orders without changing anything. This same atomic contract is available to the
+assistant through the exact `notes.reorder_lists` scope.
+
 ## Browser loading lifecycle
 
 The browser starts with the loading card visible and both the app layout and
@@ -57,7 +64,9 @@ short-lived HMAC `agent-v1` token whose audience is `notes`, whose subject is th
 data owner, and whose scope exactly matches one capability. The assistant token
 secret is shared out-of-band by deployment configuration. Browser cookies are
 never accepted by assistant routes, and assistant tokens are never accepted by
-browser routes.
+browser routes. List reordering requires a complete list-id order, so a model
+must first read the current lists and cannot omit, duplicate, or import another
+owner's list while moving one list.
 
 ## Federated banner
 

@@ -23,7 +23,7 @@ from app.agent_tokens import AgentTokenClaims, require_agent_scope
 from app.config import Settings, get_settings
 from app.db import get_db
 from app.models import AuditEvent, NoteItem, NoteList, NotesUser
-from app.schemas import ItemCreate, ItemPatch, ListCreate, ListPatch
+from app.schemas import ItemCreate, ItemPatch, ListCreate, ListOrderUpdate, ListPatch
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
@@ -269,6 +269,26 @@ def update_list_record(
     changed: list[str] = []
     for field in payload.model_fields_set:
         value = getattr(payload, field)
+        if field == "position" and isinstance(value, int):
+            current_order = list(
+                db.scalars(
+                    select(NoteList)
+                    .where(NoteList.owner_subject == owner)
+                    .order_by(NoteList.position, NoteList.created_at)
+                    .with_for_update()
+                ).unique()
+            )
+            if value >= len(current_order):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="List position is outside the current list order.",
+                )
+            current_order.remove(note_list)
+            current_order.insert(value, note_list)
+            for position, ordered_list in enumerate(current_order):
+                ordered_list.position = position
+            changed.append(field)
+            continue
         if field == "color" and isinstance(value, str):
             value = value.lower()
         if field == "description" and value == "":
@@ -287,6 +307,46 @@ def update_list_record(
     db.commit()
     db.refresh(note_list)
     return note_list
+
+
+def reorder_list_records(
+    db: Session, owner: str, payload: ListOrderUpdate, actor: str
+) -> list[NoteList]:
+    ensure_starter_lists(db, owner)
+    current_order = list(
+        db.scalars(
+            select(NoteList)
+            .where(NoteList.owner_subject == owner)
+            .order_by(NoteList.position, NoteList.created_at)
+            .with_for_update()
+        ).unique()
+    )
+    current_by_id = {note_list.id: note_list for note_list in current_order}
+    if len(payload.list_ids) != len(current_order) or set(payload.list_ids) != set(current_by_id):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="The list collection changed. Refresh it before saving a new order.",
+        )
+
+    ordered_lists = [current_by_id[list_id] for list_id in payload.list_ids]
+    changed_count = 0
+    for position, note_list in enumerate(ordered_lists):
+        if note_list.position != position:
+            note_list.position = position
+            changed_count += 1
+
+    if changed_count:
+        audit(
+            db,
+            owner=owner,
+            actor=actor,
+            action="lists.reordered",
+            entity_type="list_order",
+            entity_id=ordered_lists[0].id,
+            details={"list_ids": payload.list_ids, "changed_count": changed_count},
+        )
+    db.commit()
+    return ordered_lists
 
 
 def delete_list_record(db: Session, owner: str, list_id: str, actor: str) -> dict[str, object]:
@@ -530,6 +590,16 @@ def browser_create_list(
     return serialize_list(create_list_record(db, user_subject(user), payload, "user"))
 
 
+@app.put("/api/v1/lists/order")
+def browser_reorder_lists(
+    payload: ListOrderUpdate,
+    user: Annotated[dict[str, object], Depends(require_user)],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, object]:
+    lists = reorder_list_records(db, user_subject(user), payload, "user")
+    return {"lists": [serialize_list(note_list) for note_list in lists]}
+
+
 @app.patch("/api/v1/lists/{list_id}")
 def browser_update_list(
     list_id: str,
@@ -618,6 +688,16 @@ def agent_create_list(
     db: Annotated[Session, Depends(get_db)],
 ) -> dict[str, object]:
     return serialize_list(create_list_record(db, claims.subject, payload, "agent"))
+
+
+@app.put("/api/agent/v1/lists/order")
+def agent_reorder_lists(
+    payload: ListOrderUpdate,
+    claims: Annotated[AgentTokenClaims, Depends(require_agent_scope("notes.reorder_lists"))],
+    db: Annotated[Session, Depends(get_db)],
+) -> dict[str, object]:
+    lists = reorder_list_records(db, claims.subject, payload, "agent")
+    return {"lists": [serialize_list(note_list, include_items=False) for note_list in lists]}
 
 
 @app.patch("/api/agent/v1/lists/{list_id}")
