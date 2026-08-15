@@ -32,9 +32,12 @@ Lists and items have stable UUID identifiers and explicit positions. Deleting a
 list cascades to its items. Meaningful writes create an audit row with the owner,
 actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 
-The browser keeps list navigation and item rows deliberately compact on mobile:
-smaller readable type, reduced padding and gaps, and wrapping content sit inside
-separate 44px interaction targets. The dedicated reorder sheet is an ordered-row
+The browser keeps list navigation deliberately compact and renders notes as
+plain text rows separated by a thin rule, without card backgrounds, rounded
+boxes, or container padding. Checkbox, text, and ordering controls retain
+separate 44px interaction heights. Visible up/down controls move an item within
+its active or completed section and restore focus after the list reloads. The
+dedicated list reorder sheet is an ordered-row
 editor with visible position numbers, a labeled touch/mouse drag handle, compact
 move-up/down fallbacks, keyboard Arrow/Home/End handling, focus restoration, and
 live-region position announcements. It saves the complete ordered id set in one
@@ -44,10 +47,12 @@ without changing anything. This same atomic contract is available to the
 assistant through the exact `notes.reorder_lists` scope.
 
 An item's parent list is fixed when the item is created. Item editing can change
-title, details, completion, or position within that list, but neither the browser
-nor assistant update contract offers cross-list movement. Item patch schemas
-forbid `list_id`, so older or hand-built browser and scoped-assistant requests
-cannot bypass that product rule.
+title, details, completion, or position within that list. Position updates lock
+the current list order, move the selected item, and rewrite contiguous positions
+so repeated browser or assistant moves cannot create duplicate slots. Neither
+the browser nor assistant update contract offers cross-list movement. Item patch
+schemas forbid `list_id`, so older or hand-built browser and scoped-assistant
+requests cannot bypass that product rule.
 
 ## Browser loading lifecycle
 

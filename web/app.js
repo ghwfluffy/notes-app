@@ -136,8 +136,38 @@
     return button;
   }
 
-  function itemCard(item, noteList, showListLabel = false) {
+  function focusItemMoveControl(itemId, direction) {
+    const row = [...document.querySelectorAll(".item-card")]
+      .find((candidate) => candidate.dataset.itemId === itemId);
+    const requested = row?.querySelector(`[data-item-direction="${direction}"]`);
+    const fallback = row?.querySelector(".item-move-button:not(:disabled)")
+      || row?.querySelector(".item-content");
+    (requested && !requested.disabled ? requested : fallback)?.focus();
+  }
+
+  async function moveItem(item, noteList, orderedItems, direction, controls) {
+    const currentIndex = orderedItems.findIndex((candidate) => candidate.id === item.id);
+    const targetIndex = currentIndex + (direction === "up" ? -1 : 1);
+    const target = orderedItems[targetIndex];
+    if (!target) return;
+    for (const button of controls.querySelectorAll("button")) button.disabled = true;
+    try {
+      await request(`/items/${encodeURIComponent(item.id)}`, {
+        method: "PATCH",
+        body: JSON.stringify({ position: target.position }),
+      });
+      await reloadLists(noteList.id);
+      focusItemMoveControl(item.id, direction);
+      showToast(`Moved ${direction}.`);
+    } catch (error) {
+      for (const button of controls.querySelectorAll("button")) button.disabled = false;
+      showToast(error.message, true);
+    }
+  }
+
+  function itemCard(item, noteList, showListLabel = false, orderedItems = null) {
     const row = element("li", `item-card${item.completed ? " completed" : ""}`);
+    row.dataset.itemId = item.id;
 
     const checkLabel = element("label", "item-check");
     const checkbox = document.createElement("input");
@@ -169,7 +199,33 @@
     content.addEventListener("click", () => openItemDialog(item));
 
     const menu = element("div", "item-menu");
-    menu.append(iconButton("Edit item", "⋯", () => openItemDialog(item)));
+    if (orderedItems && orderedItems.length > 1) {
+      const itemIndex = orderedItems.findIndex((candidate) => candidate.id === item.id);
+      const controls = element("div", "item-move-controls");
+      controls.setAttribute("role", "group");
+      controls.setAttribute("aria-label", `Move ${item.title}`);
+      const up = iconButton(
+        `Move ${item.title} up`,
+        "↑",
+        () => moveItem(item, noteList, orderedItems, "up", controls),
+      );
+      up.classList.add("item-move-button");
+      up.dataset.itemDirection = "up";
+      up.disabled = itemIndex === 0;
+      const down = iconButton(
+        `Move ${item.title} down`,
+        "↓",
+        () => moveItem(item, noteList, orderedItems, "down", controls),
+      );
+      down.classList.add("item-move-button");
+      down.dataset.itemDirection = "down";
+      down.disabled = itemIndex === orderedItems.length - 1;
+      controls.append(up, down);
+      menu.append(controls);
+    }
+    const edit = iconButton("Edit item", "⋯", () => openItemDialog(item));
+    edit.classList.add("item-edit-button");
+    menu.append(edit);
     row.append(checkLabel, content, menu);
     return row;
   }
@@ -266,7 +322,9 @@
     const active = noteList.items.filter((item) => !item.completed);
     const completed = noteList.items.filter((item) => item.completed);
     const items = element("ul", "items");
-    for (const item of [...active, ...completed]) items.append(itemCard(item, noteList));
+    for (const group of [active, completed]) {
+      for (const item of group) items.append(itemCard(item, noteList, false, group));
+    }
     listPanel.append(items);
   }
 

@@ -181,6 +181,47 @@ def test_browser_rejects_moving_an_item_to_another_list() -> None:
     assert reloaded[1]["items"] == []
 
 
+def test_browser_item_position_patch_keeps_a_contiguous_order() -> None:
+    authenticate()
+    note_list = client.get("/api/v1/lists").json()["lists"][0]
+    items = [
+        client.post(
+            f"/api/v1/lists/{note_list['id']}/items",
+            json={"title": title},
+        ).json()
+        for title in ("First", "Second", "Third")
+    ]
+
+    moved = client.patch(f"/api/v1/items/{items[2]['id']}", json={"position": 0})
+
+    assert moved.status_code == 200
+    reordered = client.get("/api/v1/lists").json()["lists"][0]["items"]
+    assert [item["id"] for item in reordered] == [
+        items[2]["id"],
+        items[0]["id"],
+        items[1]["id"],
+    ]
+    assert [item["position"] for item in reordered] == [0, 1, 2]
+    assert (
+        client.patch(f"/api/v1/items/{items[0]['id']}", json={"position": 3}).status_code
+        == 422
+    )
+
+    with TestingSession() as db:
+        event = db.scalar(
+            select(AuditEvent).where(
+                AuditEvent.owner_subject == "owner-1",
+                AuditEvent.action == "item.updated",
+                AuditEvent.entity_id == items[2]["id"],
+            )
+        )
+        assert event is not None
+        assert event.details == {
+            "fields": ["position"],
+            "list_id": note_list["id"],
+        }
+
+
 def test_browser_reload_returns_custom_lists_and_items_with_starters() -> None:
     authenticate()
     starter_names = {
@@ -311,8 +352,14 @@ def test_browser_loading_state_is_hidden_correctly_and_requests_are_bounded() ->
     assert "touch-action: none" in css
     assert "font-size: 0.88rem" in css
     assert "padding: 0.4rem 0.5rem" in css
-    assert "font-size: 0.93rem" in css
-    assert "padding: 0.5rem 0.55rem" in css
+    assert "border-bottom: 1px solid var(--line)" in css
+    assert "border-radius: 0" in css
+    assert "font-size: 0.9rem" in css
+    assert '"item-move-controls"' in javascript
+    assert 'up.dataset.itemDirection = "up"' in javascript
+    assert 'down.dataset.itemDirection = "down"' in javascript
+    assert "body: JSON.stringify({ position: target.position })" in javascript
+    assert 'edit.classList.add("item-edit-button")' in javascript
     assert 'id="item-list"' not in index
     assert 'byId("item-list")' not in javascript
     assert "list_id: byId" not in javascript

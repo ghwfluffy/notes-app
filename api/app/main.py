@@ -406,6 +406,29 @@ def update_item_record(
     changed: list[str] = []
     for field in payload.model_fields_set:
         value = getattr(payload, field)
+        if field == "position" and isinstance(value, int):
+            current_order = list(
+                db.scalars(
+                    select(NoteItem)
+                    .where(
+                        NoteItem.owner_subject == owner,
+                        NoteItem.list_id == item.list_id,
+                    )
+                    .order_by(NoteItem.position, NoteItem.created_at)
+                    .with_for_update()
+                ).unique()
+            )
+            if value >= len(current_order):
+                raise HTTPException(
+                    status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                    detail="Item position is outside the current list order.",
+                )
+            current_order.remove(item)
+            current_order.insert(value, item)
+            for position, ordered_item in enumerate(current_order):
+                ordered_item.position = position
+            changed.append(field)
+            continue
         if field == "details" and value == "":
             value = None
         setattr(item, field, value)
