@@ -404,7 +404,7 @@ def test_browser_starts_with_compact_list_navigation_and_trailing_actions() -> N
     navigation_markup = navigation.group(1)
     new_list_position = navigation_markup.index('id="new-list-button"')
     reorder_position = navigation_markup.index('id="reorder-lists-button"')
-    assert new_list_position < reorder_position
+    assert reorder_position < new_list_position
     assert "New List" in navigation_markup
     assert "Reorder" in navigation_markup
     assert 'aria-label="Create a new list"' in navigation_markup
@@ -412,11 +412,11 @@ def test_browser_starts_with_compact_list_navigation_and_trailing_actions() -> N
     assert re.search(r'id="reorder-lists-button"[^>]*\sdisabled', navigation_markup)
     assert "navigationItems.push(button);" in javascript
     assert (
-        "listNavigation.replaceChildren(...navigationItems, newListButton, reorderListsButton);"
+        "listNavigation.replaceChildren(...navigationItems, reorderListsButton, newListButton);"
         in javascript
     )
     assert javascript.index("navigationItems.push(button);") < javascript.index(
-        "listNavigation.replaceChildren(...navigationItems, newListButton, reorderListsButton);"
+        "listNavigation.replaceChildren(...navigationItems, reorderListsButton, newListButton);"
     )
     assert "reorderListsButton.disabled = state.lists.length < 2;" in javascript
     assert 'newListButton.addEventListener("click", () => openListDialog());' in javascript
@@ -431,6 +431,14 @@ def test_browser_starts_with_compact_list_navigation_and_trailing_actions() -> N
     assert ".list-action-button" in mobile_css
     assert "flex: 0 0 auto" in mobile_css
     assert "width: auto" in mobile_css
+    narrow_css = css[
+        css.index("@media (max-width: 430px)") : css.index("@media (prefers-reduced-motion: reduce)")
+    ]
+    assert 'element("div", "panel-copy")' in javascript
+    assert ".panel-copy" in css
+    assert ".panel-heading" in narrow_css
+    assert "display: grid" not in narrow_css
+    assert "justify-self: end" not in narrow_css
 
 
 def test_browser_data_is_isolated_by_oauth_subject() -> None:

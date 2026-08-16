@@ -35,9 +35,11 @@ actor type (`user`, `agent`, or `system`), action, entity, and bounded metadata.
 The browser keeps list navigation deliberately compact. Shared federated chrome
 is followed directly by a visible Lists heading and the list navigation; the
 page has no page-specific hero or global search. On mobile, list navigation is a
-horizontally scrolling strip, with New List followed by Reorder as its final two
+horizontally scrolling strip, with Reorder followed by New List as its final two
 buttons. The same heading and trailing actions remain visible on larger screens.
-Reorder remains disabled until at least two lists exist.
+Reorder remains disabled until at least two lists exist. List edit and delete
+actions stay in the heading's upper-right corner on narrow screens, beside the
+title and above the description, instead of creating a separate action row.
 
 Notes render as plain text rows separated by a thin rule, without card
 backgrounds, rounded boxes, or container padding. Checkbox, text, and ordering

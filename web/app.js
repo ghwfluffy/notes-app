@@ -121,7 +121,7 @@
       });
       navigationItems.push(button);
     }
-    listNavigation.replaceChildren(...navigationItems, newListButton, reorderListsButton);
+    listNavigation.replaceChildren(...navigationItems, reorderListsButton, newListButton);
   }
 
   function iconButton(label, symbol, onClick, danger = false) {
@@ -242,7 +242,7 @@
     }
 
     const heading = element("div", "panel-heading");
-    const copy = element("div");
+    const copy = element("div", "panel-copy");
     copy.append(element("p", "eyebrow", `${noteList.active_item_count} active`));
     copy.append(element("h2", "", noteList.name));
     if (noteList.description) copy.append(element("p", "", noteList.description));
