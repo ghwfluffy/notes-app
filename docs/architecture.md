@@ -98,3 +98,17 @@ The app embeds the shared `vendor/federated-banner` package. Its authenticated
 bootstrap response provides user display fields, account settings, and the
 deployment-supplied non-secret `FEDERATED_APPS` inventory. Standalone operation
 falls back to only Federated Services and My Notes.
+
+## Background session recovery
+
+The browser API client handles an expired app session by fetching its configured
+OAuth login URL in the background, with same-origin cookies, then retrying the
+rejected request once. Redirects and PKCE callbacks run through the existing
+server endpoints without replacing the visible document or losing UI state.
+Concurrent failures share one recovery attempt; recovery has a ten-second limit.
+Only authentication failures qualify; permission denials, network failures,
+password sign-in and logout do not trigger recovery. OAuth-disabled consumers
+retain their local behavior. If the retry fails, existing error/sign-in handling
+applies. Central Remember Me cookies remain private to the auth app; no tokens
+are exposed to browser JavaScript. Browser recovery grants no assistant access
+and never applies to external gate-control requests or scoped assistant tokens.

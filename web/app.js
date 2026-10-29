@@ -43,18 +43,49 @@
     toastTimer = window.setTimeout(() => { toast.hidden = true; }, 3200);
   }
 
+// Restore the app cookie through OAuth without navigating the visible page.
+function createSessionRecovery(loginUrl, enabled = true) {
+  let pending = null;
+  let generation = 0;
+  return async function withSessionRecovery(send, eligible = true) {
+    const started = generation;
+    const response = await send();
+    if (!enabled || !eligible || response.status !== 401) return response;
+    if (started === generation) {
+      if (!pending) {
+        pending = (async () => {
+          try {
+            const url = new URL(loginUrl(), window.location.href);
+            if (url.origin !== window.location.origin) return;
+            await fetch(url, {
+              credentials: "same-origin", cache: "no-store",
+              signal: AbortSignal.timeout(10000),
+            });
+            generation += 1;
+          } catch {
+            // The single retry below decides whether authentication was restored.
+          }
+        })().finally(() => { pending = null; });
+      }
+      await pending;
+    }
+    return send();
+  };
+}
+
+const recoverSession = createSessionRecovery(() => `${apiBase}/auth/oauth/login?next=${encodeURIComponent(`${basePath}/`)}`);
   async function request(path, options = {}) {
     const controller = new AbortController();
     const timeoutId = window.setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const response = await fetch(`${apiBase}${path}`, {
+      const response = await recoverSession(() => fetch(`${apiBase}${path}`, {
         ...options,
         headers: {
           "content-type": "application/json",
           ...(options.headers || {}),
         },
         signal: controller.signal,
-      });
+      }), !path.startsWith("/auth/") || path === "/auth/me");
       if (response.status === 401) {
         window.location.assign(`${apiBase}/auth/oauth/login?next=${encodeURIComponent(`${basePath}/`)}`);
         throw new Error("Authentication required.");
